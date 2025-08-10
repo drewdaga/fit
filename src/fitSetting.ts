@@ -212,10 +212,10 @@ export default class FitSettingTab extends PluginSettingTab {
 			.setName("Encryption Key")
 			.setDesc("Don't lose this!")
 			.addText(text => text
-				.setValue(this.plugin.settings.key) // Default value
+				.setValue(this.plugin.settings.password) // Default value
 				.onChange(async (value: string) => {
 					console.log("Feature enabled:", value);
-					this.plugin.settings.key = value;
+					this.plugin.settings.password = value;
 					await this.plugin.saveSettings();
 				}));
 	}

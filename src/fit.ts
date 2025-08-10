@@ -1,6 +1,6 @@
 import { LocalStores, FitSettings } from "main"
 import { Octokit } from "@octokit/core"
-import { RECOGNIZED_BINARY_EXT, compareSha, encryptContent, decryptContent } from "./utils"
+import { RECOGNIZED_BINARY_EXT, compareSha, encryptContent, decryptContent, encryptPath, decryptPath } from "./utils"
 import { VaultOperations } from "./vaultOps"
 import { LocalChange, LocalFileStatus, RemoteChange, RemoteChangeType } from "./fitTypes"
 import { arrayBufferToBase64, Vault } from "obsidian"
@@ -92,7 +92,7 @@ export class Fit implements IFit {
         this.deviceName = setting.deviceName
         this.octokit = new Octokit({auth: setting.pat})
         this.encryptionEnabled = setting.enableEncryption
-        this.encryptionKey = setting.key
+        this.password = setting.password
     }
     
     loadLocalStore(localStore: LocalStores) {
@@ -301,7 +301,7 @@ export class Fit implements IFit {
     async createBlob(content: string, encoding: string): Promise<string> {
         let finalContent = content;
         if (this.encryptionEnabled) {
-            finalContent = await encryptContent(content, this.encryptionKey);
+            finalContent = await encryptContent(content, this.password);
             encoding = 'base64'; // Always use base64 for encrypted content
         }
         
@@ -404,7 +404,7 @@ export class Fit implements IFit {
         let content = blob.content;
         if (this.encryptionEnabled) {
             try {
-                content = await decryptContent(content, this.encryptionKey);
+                content = await decryptContent(content, this.password);
             } catch (e) {
                 // If decryption fails, it might be unencrypted content from before encryption was enabled
                 console.warn(`Failed to decrypt content: ${e.message}`);
