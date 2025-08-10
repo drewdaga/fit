@@ -282,7 +282,7 @@ export class Fit implements IFit {
     // get the remote tree sha in the format compatible with local store
     async getRemoteTreeSha(tree_sha: string): Promise<{[k:string]: string}> {
         const remoteTree = await this.getTree(tree_sha)
-        const remoteSha = Object.fromEntries(remoteTree.map((node: TreeNode) : [string, string] | null=>{
+        const results = await Promise.all(remoteTree.map(async (node: TreeNode): Promise<[string, string] | null> => {
             // currently ignoring directory changes, if you'd like to upload a new directory, 
             // a quick hack would be creating an empty file inside
             if (node.type=="blob") {
@@ -291,10 +291,18 @@ export class Fit implements IFit {
                 }
                 // ignore changes in the _fit/ directory
                 if (node.path.startsWith("_fit/")) {return null}
-                return [node.path, node.sha]
+                
+                // Decrypt the path if encryption is enabled
+                let localPath = node.path;
+                if (this.encryptionEnabled) {
+                    localPath = await decryptPath(node.path, this.password);
+                }
+                
+                return [localPath, node.sha]
             }
             return null
-        }).filter(Boolean) as [string, string][])
+        }))
+        const remoteSha = Object.fromEntries(results.filter(Boolean) as [string, string][])
         return remoteSha
     }
 
@@ -309,7 +317,7 @@ export class Fit implements IFit {
             `POST /repos/{owner}/{repo}/git/blobs`, {
             owner: this.owner,
             repo: this.repo,
-            content, 
+            content: finalContent, 
             encoding,
             headers: this.headers     
         })
@@ -318,13 +326,19 @@ export class Fit implements IFit {
 
 
     async createTreeNodeFromFile({path, status, extension}: LocalChange, remoteTree: Array<TreeNode>): Promise<TreeNode|null> {
+        // Encrypt the path for remote storage if encryption is enabled
+        let remotePath = path;
+        if (this.encryptionEnabled && !path.startsWith("_fit/")) {
+            remotePath = await encryptPath(path, this.password);
+        }
+        
 		if (status === "deleted") {
             // skip creating deletion node if file not found on remote
-            if (remoteTree.every(node => node.path !== path)) {
+            if (remoteTree.every(node => node.path !== remotePath)) {
                 return null
             }
 			return {
-				path,
+				path: remotePath,
 				mode: '100644',
 				type: 'blob',
 				sha: null
@@ -339,11 +353,11 @@ export class Fit implements IFit {
 		content = await this.vaultOps.readAndEncryptContent(file)
         const blobSha = await this.createBlob(content, encoding)
         // skip creating node if file found on remote is the same as the created blob
-        if (remoteTree.some(node => node.path === path && node.sha === blobSha)) {
+        if (remoteTree.some(node => node.path === remotePath && node.sha === blobSha)) {
             return null
         }
 		return {
-			path: path,
+			path: remotePath,
 			mode: '100644',
 			type: 'blob',
 			sha: blobSha,

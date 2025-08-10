@@ -77,7 +77,104 @@ export function removeLineEndingsFromBase64String(content: string): string {
     return content.replace(/\r?\n|\r|\n/g, '');
 }
 
-// Encryption utilities
+// Path encryption utilities
+async function derivePathKey(password: string): Promise<CryptoKey> {
+    const encoder = new TextEncoder();
+    const passwordData = encoder.encode(password);
+    const salt = encoder.encode("FitPathEncryption"); // Constant salt for path encryption
+
+    // First create a PBKDF2 key from the password
+    const baseKey = await window.crypto.subtle.importKey(
+        "raw",
+        passwordData,
+        "PBKDF2",
+        false,
+        ["deriveBits", "deriveKey"]
+    );
+
+    // Then derive an AES-GCM key using PBKDF2
+    return await window.crypto.subtle.deriveKey(
+        {
+            name: "PBKDF2",
+            salt: salt,
+            iterations: 100000,
+            hash: "SHA-256"
+        },
+        baseKey,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+    );
+}
+
+export async function encryptPath(path: string, password: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(path);
+    
+    // Use a deterministic IV based on the path
+    const pathData = encoder.encode(path);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', pathData);
+    const iv = new Uint8Array(hashBuffer).slice(0, 12);
+    
+    // Derive key from password (uses constant salt)
+    const cryptoKey = await derivePathKey(password);
+
+    // Encrypt
+    const encryptedData = await window.crypto.subtle.encrypt(
+        {
+            name: "AES-GCM",
+            iv: iv
+        },
+        cryptoKey,
+        data
+    );
+    
+    // Combine IV and encrypted data
+    const combined = new Uint8Array(iv.length + new Uint8Array(encryptedData).length);
+    combined.set(iv);
+    combined.set(new Uint8Array(encryptedData), iv.length);
+    
+    // Convert to URL-safe base64
+    const base64 = arrayBufferToBase64(combined.buffer);
+    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+export async function decryptPath(encryptedPath: string, password: string): Promise<string> {
+    try {
+        // Convert from URL-safe base64
+        const base64 = encryptedPath.replace(/-/g, '+').replace(/_/g, '/');
+        // Add padding if needed
+        const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
+        const encryptedData = base64ToArrayBuffer(padded);
+        
+        // Extract the IV from the first 12 bytes of encrypted data
+        // We need to modify encryptPath to include IV in the output
+        const iv = encryptedData.slice(0, 12);
+        const actualEncryptedData = encryptedData.slice(12);
+        
+        // Derive the same key
+        const cryptoKey = await derivePathKey(password);
+
+        // Decrypt
+        const decryptedData = await window.crypto.subtle.decrypt(
+            {
+                name: "AES-GCM",
+                iv: iv
+            },
+            cryptoKey,
+            actualEncryptedData
+        );
+
+        return new TextDecoder().decode(decryptedData);
+    } catch (e) {
+        // If decryption fails, return the original path
+        // This handles the case of unencrypted paths
+        console.log("Decryption failed, skipping...");
+        return encryptedPath;
+    }
+}
+
+// Content encryption utilities
 async function deriveKey(password: string, salt: ArrayBuffer): Promise<CryptoKey> {
     const encoder = new TextEncoder();
     const passwordData = encoder.encode(password);
