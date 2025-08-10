@@ -66,6 +66,8 @@ export class Fit implements IFit {
 	lastFetchedRemoteSha: Record<string, string>
     octokit: Octokit
     vaultOps: VaultOperations
+    encryptionEnabled: boolean
+    encryptionKey: string
 
 
     constructor(setting: FitSettings, localStores: LocalStores, vaultOps: VaultOperations) {
@@ -86,6 +88,8 @@ export class Fit implements IFit {
         this.branch = setting.branch
         this.deviceName = setting.deviceName
         this.octokit = new Octokit({auth: setting.pat})
+        this.encryptionEnabled = setting.enableEncryption
+        this.encryptionKey = setting.key
     }
     
     loadLocalStore(localStore: LocalStores) {
@@ -292,6 +296,8 @@ export class Fit implements IFit {
     }
 
     async createBlob(content: string, encoding: string): Promise<string> {
+        //TODO encrypt and b64 encode here
+        
         const {data: blob} = await this.octokit.request(
             `POST /repos/{owner}/{repo}/git/blobs`, {
             owner: this.owner,
@@ -335,7 +341,7 @@ export class Fit implements IFit {
 			encoding = 'utf-8'
 			content = await this.vaultOps.vault.read(file)
 		}
-		const blobSha = await this.createBlob(content, encoding)
+        const blobSha = await this.createBlob(content, encoding)
         // skip creating node if file found on remote is the same as the created blob
         if (remoteTree.some(node => node.path === path && node.sha === blobSha)) {
             return null
@@ -399,6 +405,7 @@ export class Fit implements IFit {
             file_sha,
             headers: this.headers
         })
+        // decrypt and b64 encode here
         return blob.content
     }
 }

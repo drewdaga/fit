@@ -17,6 +17,8 @@ export interface FitSettings {
 	autoSync: "on" | "off" | "muted" | "remind"
 	notifyChanges: boolean
 	notifyConflicts: boolean
+	enableEncryption: boolean
+	key: string;
 }
 
 const DEFAULT_SETTINGS: FitSettings = {
@@ -29,7 +31,9 @@ const DEFAULT_SETTINGS: FitSettings = {
 	checkEveryXMinutes: 5,
 	autoSync: "off",
 	notifyChanges: true,
-	notifyConflicts: true	
+	notifyConflicts: true,
+	enableEncryption: true,
+	key: ""	
 }
 
 

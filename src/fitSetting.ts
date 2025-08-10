@@ -1,5 +1,5 @@
 import FitPlugin from "main";
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, ToggleComponent } from "obsidian";
 import { setEqual } from "./utils";
 import { warn } from "console";
 
@@ -28,7 +28,7 @@ export default class FitSettingTab extends PluginSettingTab {
 	}
 
 	getLatestLink = (): string => {
-		const {owner, repo, branch} = this.plugin.settings;
+		const { owner, repo, branch } = this.plugin.settings;
 		if (owner.length > 0 && repo.length > 0 && branch.length > 0) {
 			return `https://github.com/${owner}/${repo}/tree/${branch}`
 		}
@@ -42,7 +42,7 @@ export default class FitSettingTab extends PluginSettingTab {
 		this.authUserAvatar.removeClass('empty')
 		this.authUserAvatar.addClass('cat')
 		try {
-			const {owner, avatarUrl} = await this.plugin.fit.getUser();
+			const { owner, avatarUrl } = await this.plugin.fit.getUser();
 			this.authUserAvatar.removeClass('cat')
 			this.authUserAvatar.createEl('img', { attr: { src: avatarUrl } });
 			this.authUserHandle.setText(owner)
@@ -74,36 +74,36 @@ export default class FitSettingTab extends PluginSettingTab {
 	}
 
 	githubUserInfoBlock = () => {
-		const {containerEl} = this
+		const { containerEl } = this
 		new Setting(containerEl).setHeading()
-		.setName("GitHub user info")
-		.addButton(button => button
-			.setCta()
-			.setButtonText("Authenticate user")
-			.setDisabled(this.authenticating)
-			.onClick(async ()=>{
-				if (this.authenticating) return
-				await this.handleUserFetch()
-			}))
+			.setName("GitHub user info")
+			.addButton(button => button
+				.setCta()
+				.setButtonText("Authenticate user")
+				.setDisabled(this.authenticating)
+				.onClick(async () => {
+					if (this.authenticating) return
+					await this.handleUserFetch()
+				}))
 		this.ownerSetting = new Setting(containerEl)
 			.setDesc("Input your personal access token below to get authenticated. Create a GitHub account here if you don't have one yet.")
-			.addExtraButton(button=>button
+			.addExtraButton(button => button
 				.setIcon('github')
 				.setTooltip("Sign up on github.com")
-				.onClick(async ()=>{
+				.onClick(async () => {
 					window.open("https://github.com/signup", "_blank")
 				}))
 		this.ownerSetting.nameEl.addClass('fit-avatar-container');
 		if (this.plugin.settings.owner === "") {
 			this.authUserAvatar = this.ownerSetting.nameEl.createDiv(
-				{cls: 'fit-avatar-container empty'})
-			this.authUserHandle = this.ownerSetting.nameEl.createEl('span', {cls: 'fit-github-handle'})
+				{ cls: 'fit-avatar-container empty' })
+			this.authUserHandle = this.ownerSetting.nameEl.createEl('span', { cls: 'fit-github-handle' })
 			this.authUserHandle.setText("Unauthenticated")
 		} else {
 			this.authUserAvatar = this.ownerSetting.nameEl.createDiv(
-				{cls: 'fit-avatar-container'})
+				{ cls: 'fit-avatar-container' })
 			this.authUserAvatar.createEl('img', { attr: { src: this.plugin.settings.avatarUrl } });
-			this.authUserHandle = this.ownerSetting.nameEl.createEl('span', {cls: 'fit-github-handle'})
+			this.authUserHandle = this.ownerSetting.nameEl.createEl('span', { cls: 'fit-github-handle' })
 			this.authUserHandle.setText(this.plugin.settings.owner)
 		}
 		// hide the control element to make space for authUser
@@ -119,26 +119,26 @@ export default class FitSettingTab extends PluginSettingTab {
 					this.plugin.settings.pat = value;
 					await this.plugin.saveSettings();
 				}))
-			.addExtraButton(button=>button
+			.addExtraButton(button => button
 				.setIcon('external-link')
 				.setTooltip("Create a token")
-				.onClick(async ()=>{
+				.onClick(async () => {
 					window.open("https://github.com/settings/tokens/new", '_blank');
 				}))
 	}
 
 	repoInfoBlock = async () => {
-		const {containerEl} = this
+		const { containerEl } = this
 		new Setting(containerEl).setHeading().setName("Repository info")
-		.setDesc("Refresh to retrieve the latest list of repos and branches.")
-		.addExtraButton(button => button
-			.setTooltip("Refresh repos and branches list")
-			.setDisabled(this.plugin.settings.owner === "")
-			.setIcon('refresh-cw')
-			.onClick(async () => {
-				await this.refreshFields('repo(0)');
-			}))
-			
+			.setDesc("Refresh to retrieve the latest list of repos and branches.")
+			.addExtraButton(button => button
+				.setTooltip("Refresh repos and branches list")
+				.setDisabled(this.plugin.settings.owner === "")
+				.setIcon('refresh-cw')
+				.onClick(async () => {
+					await this.refreshFields('repo(0)');
+				}))
+
 		new Setting(containerEl)
 			.setDesc("Select 'Add a README file' if creating a new repo. Make sure you are logged in to github on your browser.")
 			.addExtraButton(button => button
@@ -147,13 +147,13 @@ export default class FitSettingTab extends PluginSettingTab {
 				.onClick(() => {
 					window.open(`https://github.com/new`, '_blank');
 				}))
-				
+
 		this.repoSetting = new Setting(containerEl)
 			.setName('Github repository name')
 			.setDesc("Select a repo to sync your vault, refresh to see your latest repos. If some repos are missing, make sure your token are granted access to them.")
 			.addDropdown(dropdown => {
 				dropdown.selectEl.addClass('repo-dropdown');
-				this.existingRepos.map(repo=>dropdown.addOption(repo, repo))
+				this.existingRepos.map(repo => dropdown.addOption(repo, repo))
 				dropdown.setDisabled(this.existingRepos.length === 0)
 				dropdown.setValue(this.plugin.settings.repo)
 				dropdown.onChange(async (value) => {
@@ -172,7 +172,7 @@ export default class FitSettingTab extends PluginSettingTab {
 			.addDropdown(dropdown => {
 				dropdown.selectEl.addClass('branch-dropdown');
 				dropdown.setDisabled(this.existingBranches.length === 0)
-				this.existingBranches.map(repo=>dropdown.addOption(repo, repo))
+				this.existingBranches.map(repo => dropdown.addOption(repo, repo))
 				dropdown.setValue(this.plugin.settings.branch)
 				dropdown.onChange(async (value) => {
 					const branchChanged = value !== this.plugin.settings.branch
@@ -198,11 +198,31 @@ export default class FitSettingTab extends PluginSettingTab {
 				})
 			)
 		linkDisplay.descEl.addClass("link-desc")
+		new Setting(containerEl)
+			.setName("Enable Encryption")
+			.setDesc("Encrypt and base64 encode all content to/from github")
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.enableEncryption) // Default value
+				.onChange(async (value: boolean) => {
+					console.log("Feature enabled:", value);
+					this.plugin.settings.enableEncryption = value;
+					await this.plugin.saveSettings();
+				}));
+						new Setting(containerEl)
+			.setName("Encryption Key")
+			.setDesc("Don't lose this!")
+			.addText(text => text
+				.setValue(this.plugin.settings.key) // Default value
+				.onChange(async (value: string) => {
+					console.log("Feature enabled:", value);
+					this.plugin.settings.key = value;
+					await this.plugin.saveSettings();
+				}));
 	}
 
 	localConfigBlock = () => {
-		const {containerEl} = this
-		new Setting(containerEl).setHeading().setName("Local configurations");		
+		const { containerEl } = this
+		new Setting(containerEl).setHeading().setName("Local configurations");
 		new Setting(containerEl)
 			.setName('Device name')
 			.setDesc('Sign commit message with this device name.')
@@ -214,25 +234,25 @@ export default class FitSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-				
+
 		new Setting(containerEl)
-		.setName("Auto sync")
-		.setDesc(`Automatically sync your vault when remote has updates. (Muted: sync in the background without displaying notices, except for file changes and conflicts notice)`)
-		.addDropdown(dropdown => {
-			dropdown
-			.addOption('off', 'Off')
-			.addOption('muted', 'Muted')
-			.addOption('remind', 'Remind only')
-			.addOption('on', 'On')
-			.setValue(this.plugin.settings.autoSync ? this.plugin.settings.autoSync : 'off')
-			.onChange(async (value) => {
-				this.plugin.settings.autoSync = value as "off" | "muted" | "remind" | "on";
-				checkIntervalSlider.settingEl.addClass(value === "off" ? "clear" : "restore");
-				checkIntervalSlider.settingEl.removeClass(value === "off" ? "restore" : "clear");
-				await this.plugin.saveSettings();
+			.setName("Auto sync")
+			.setDesc(`Automatically sync your vault when remote has updates. (Muted: sync in the background without displaying notices, except for file changes and conflicts notice)`)
+			.addDropdown(dropdown => {
+				dropdown
+					.addOption('off', 'Off')
+					.addOption('muted', 'Muted')
+					.addOption('remind', 'Remind only')
+					.addOption('on', 'On')
+					.setValue(this.plugin.settings.autoSync ? this.plugin.settings.autoSync : 'off')
+					.onChange(async (value) => {
+						this.plugin.settings.autoSync = value as "off" | "muted" | "remind" | "on";
+						checkIntervalSlider.settingEl.addClass(value === "off" ? "clear" : "restore");
+						checkIntervalSlider.settingEl.removeClass(value === "off" ? "restore" : "clear");
+						await this.plugin.saveSettings();
+					})
 			})
-		})
-		
+
 		const checkIntervalSlider = new Setting(containerEl)
 			.setName('Auto check interval')
 			.setDesc(`Automatically check for remote changes in the background every ${this.plugin.settings.checkEveryXMinutes} minutes.`)
@@ -253,7 +273,7 @@ export default class FitSettingTab extends PluginSettingTab {
 	}
 
 	noticeConfigBlock = () => {
-		const {containerEl} = this
+		const { containerEl } = this
 		const selectedCol = "var(--interactive-accent)"
 		const selectedTxtCol = "var(--text-on-accent)"
 		const unselectedColor = "var(--interactive-normal)"
@@ -310,7 +330,7 @@ export default class FitSettingTab extends PluginSettingTab {
 	}
 
 	refreshFields = async (refreshFrom: RefreshCheckPoint) => {
-		const {containerEl} = this
+		const { containerEl } = this
 		const repo_dropdown = containerEl.querySelector('.repo-dropdown') as HTMLSelectElement
 		const branch_dropdown = containerEl.querySelector('.branch-dropdown') as HTMLSelectElement
 		const link_el = containerEl.querySelector('.link-desc') as HTMLElement
@@ -327,8 +347,8 @@ export default class FitSettingTab extends PluginSettingTab {
 				// if original repo not in the updated existing repo, -1 will be returned
 				const selectedRepoIndex = this.existingRepos.indexOf(this.plugin.settings.repo);
 				// setting selectedIndex to -1 to indicate no options selected
-				repo_dropdown.selectedIndex = selectedRepoIndex 
-				if (selectedRepoIndex===-1){
+				repo_dropdown.selectedIndex = selectedRepoIndex
+				if (selectedRepoIndex === -1) {
 					this.plugin.settings.repo = ""
 				}
 			}
@@ -349,19 +369,19 @@ export default class FitSettingTab extends PluginSettingTab {
 					const selectedBranchIndex = this.existingBranches.indexOf(this.plugin.settings.branch);
 					// setting selectedIndex to -1 to indicate no options selected
 					branch_dropdown.selectedIndex = selectedBranchIndex
-					if (selectedBranchIndex===-1){
+					if (selectedBranchIndex === -1) {
 						this.plugin.settings.branch = ""
 					}
 				}
 			}
 			branch_dropdown.disabled = false
-		} 
+		}
 		if (refreshFrom === "link(2)" || refreshFrom === "branch(1)" || refreshFrom === "repo(0)") {
 			this.repoLink = this.getLatestLink();
 			link_el.innerText = this.repoLink
-		} 
+		}
 		if (refreshFrom === "initialize") {
-			const {repo, branch} = this.plugin.settings
+			const { repo, branch } = this.plugin.settings
 			repo_dropdown.empty()
 			branch_dropdown.empty()
 			repo_dropdown.add(new Option(repo, repo))
@@ -411,7 +431,7 @@ export default class FitSettingTab extends PluginSettingTab {
 
 
 	async display(): Promise<void> {
-		const {containerEl} = this;
+		const { containerEl } = this;
 
 		containerEl.empty();
 
