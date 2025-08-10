@@ -1,5 +1,6 @@
-import { TFile, Vault, base64ToArrayBuffer } from "obsidian";
+import { TFile, Vault, base64ToArrayBuffer, arrayBufferToBase64 } from "obsidian";
 import { FileOpRecord } from "./fitTypes";
+import { encryptContent, decryptContent } from "./utils";
 
 
 export interface IVaultOperations {
@@ -14,9 +15,11 @@ export interface IVaultOperations {
 
 export class VaultOperations implements IVaultOperations {
     vault: Vault
+    settings: {enableEncryption: boolean, password: string}
 
-    constructor(vault: Vault) {
+    constructor(vault: Vault, settings: {enableEncryption: boolean, password: string}) {
         this.vault = vault
+        this.settings = settings
     }
 
     async getTFile(path: string): Promise<TFile> {
@@ -52,18 +55,29 @@ export class VaultOperations implements IVaultOperations {
     }
 
     async writeToLocal(path: string, content: string): Promise<FileOpRecord> {
-        // adopted getAbstractFileByPath for mobile compatiability
-        // TODO: add capability for creating folder from remote
-        const file = this.vault.getAbstractFileByPath(path)
+        // Decrypt content if encryption is enabled
+        let dataToWrite: string;
+        if (this.settings.enableEncryption) {
+            try {
+                dataToWrite = await decryptContent(content, this.settings.password);
+            } catch (e) {
+                // If decryption fails, try using content directly as it might be unencrypted
+                dataToWrite = content;
+            }
+        } else {
+            dataToWrite = content;
+        }
+
+        const file = this.vault.getAbstractFileByPath(path);
         if (file && file instanceof TFile) {
-            await this.vault.modifyBinary(file, base64ToArrayBuffer(content))
-            return {path, status: "changed"}
+            await this.vault.modifyBinary(file, base64ToArrayBuffer(dataToWrite));
+            return {path, status: "changed"};
         } else if (!file) {
-            this.ensureFolderExists(path)
-            await this.vault.createBinary(path, base64ToArrayBuffer(content))
-            return {path, status: "created"}
+            this.ensureFolderExists(path);
+            await this.vault.createBinary(path, base64ToArrayBuffer(dataToWrite));
+            return {path, status: "created"};
         } 
-            throw new Error(`${path} writeToLocal operation unsuccessful, vault abstractFile on ${path} is of type ${typeof file}`);
+        throw new Error(`${path} writeToLocal operation unsuccessful, vault abstractFile on ${path} is of type ${typeof file}`);
     }
 
     async updateLocalFiles(
@@ -80,6 +94,14 @@ export class VaultOperations implements IVaultOperations {
             });
             const fileOps = await Promise.all([...writeOperations, ...deletionOperations]);
             return fileOps
+    }
+
+    async readAndEncryptContent(file: TFile): Promise<string> {
+        const content = arrayBufferToBase64(await this.vault.readBinary(file));
+        if (this.settings.enableEncryption) {
+            return await encryptContent(content, this.settings.password);
+        }
+        return content;
     }
 
     async createCopyInDir(path: string, copyDir = "_fit"): Promise<void> {

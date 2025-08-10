@@ -1,4 +1,4 @@
-import { Notice } from "obsidian";
+import { Notice, arrayBufferToBase64, base64ToArrayBuffer } from "obsidian";
 import { ClashStatus, FileOpRecord, LocalFileStatus, RemoteChangeType } from "./fitTypes";
 
 type Status = RemoteChangeType | LocalFileStatus
@@ -75,6 +75,90 @@ export function setEqual<T>(arr1: Array<T>, arr2: Array<T>) {
 
 export function removeLineEndingsFromBase64String(content: string): string {
     return content.replace(/\r?\n|\r|\n/g, '');
+}
+
+// Encryption utilities
+async function deriveKey(password: string, salt: ArrayBuffer): Promise<CryptoKey> {
+    const encoder = new TextEncoder();
+    const passwordData = encoder.encode(password);
+
+    // First create a PBKDF2 key from the password
+    const baseKey = await window.crypto.subtle.importKey(
+        "raw",
+        passwordData,
+        "PBKDF2",
+        false,
+        ["deriveBits", "deriveKey"]
+    );
+
+    // Then derive an AES-GCM key using PBKDF2
+    return await window.crypto.subtle.deriveKey(
+        {
+            name: "PBKDF2",
+            salt: salt,
+            iterations: 100000,  // High iteration count for security
+            hash: "SHA-256"
+        },
+        baseKey,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+    );
+}
+
+export async function encryptContent(content: string, password: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(content);
+    
+    // Generate salt and IV
+    const salt = window.crypto.getRandomValues(new Uint8Array(16));
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    
+    // Derive key from password and salt
+    const cryptoKey = await deriveKey(password, salt.buffer);
+
+    // Encrypt
+    const encryptedData = await window.crypto.subtle.encrypt(
+        {
+            name: "AES-GCM",
+            iv: iv
+        },
+        cryptoKey,
+        data
+    );
+
+    // Combine salt, IV, and encrypted data and convert to base64
+    const combined = new Uint8Array(salt.length + iv.length + new Uint8Array(encryptedData).length);
+    combined.set(salt);  // First 16 bytes are salt
+    combined.set(iv, salt.length);  // Next 12 bytes are IV
+    combined.set(new Uint8Array(encryptedData), salt.length + iv.length);  // Rest is encrypted data
+    
+    return arrayBufferToBase64(combined.buffer);
+}
+
+export async function decryptContent(encryptedContent: string, password: string): Promise<string> {
+    // Convert base64 to array buffer
+    const combined = base64ToArrayBuffer(encryptedContent);
+    
+    // Extract salt, IV, and data
+    const salt = combined.slice(0, 16);
+    const iv = combined.slice(16, 28);
+    const data = combined.slice(28);
+    
+    // Derive key from password and salt
+    const cryptoKey = await deriveKey(password, new Uint8Array(salt).buffer);
+
+    // Decrypt
+    const decryptedData = await window.crypto.subtle.decrypt(
+        {
+            name: "AES-GCM",
+            iv: iv
+        },
+        cryptoKey,
+        data
+    );
+
+    return new TextDecoder().decode(decryptedData);
 }
 
 export function showFileOpsRecord(records: Array<{heading: string, ops: FileOpRecord[]}>): void {

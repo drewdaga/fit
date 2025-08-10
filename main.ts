@@ -18,7 +18,7 @@ export interface FitSettings {
 	notifyChanges: boolean
 	notifyConflicts: boolean
 	enableEncryption: boolean
-	key: string;
+	password: string;
 }
 
 const DEFAULT_SETTINGS: FitSettings = {
@@ -33,7 +33,7 @@ const DEFAULT_SETTINGS: FitSettings = {
 	notifyChanges: true,
 	notifyConflicts: true,
 	enableEncryption: true,
-	key: ""	
+	password: ""	
 }
 
 
@@ -234,8 +234,8 @@ export default class FitPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		await this.loadLocalStore();
-		this.vaultOps = new VaultOperations(this.app.vault)
-		this.fit = new Fit(this.settings, this.localStore, this.vaultOps)
+		this.fit = new Fit(this.settings, this.localStore, this.app.vault)
+		this.vaultOps = this.fit.vaultOps
 		this.fitSync = new FitSync(this.fit, this.vaultOps, this.saveLocalStoreCallback)
 		this.syncing = false
 		this.autoSyncing = false

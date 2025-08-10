@@ -1,9 +1,9 @@
 import { LocalStores, FitSettings } from "main"
 import { Octokit } from "@octokit/core"
-import { RECOGNIZED_BINARY_EXT, compareSha } from "./utils"
+import { RECOGNIZED_BINARY_EXT, compareSha, encryptContent, decryptContent } from "./utils"
 import { VaultOperations } from "./vaultOps"
 import { LocalChange, LocalFileStatus, RemoteChange, RemoteChangeType } from "./fitTypes"
-import { arrayBufferToBase64 } from "obsidian"
+import { arrayBufferToBase64, Vault } from "obsidian"
 
 
 
@@ -67,13 +67,16 @@ export class Fit implements IFit {
     octokit: Octokit
     vaultOps: VaultOperations
     encryptionEnabled: boolean
-    encryptionKey: string
+    password: string
 
 
-    constructor(setting: FitSettings, localStores: LocalStores, vaultOps: VaultOperations) {
+    constructor(setting: FitSettings, localStores: LocalStores, vault: Vault) {
         this.loadSettings(setting)
         this.loadLocalStore(localStores)
-        this.vaultOps = vaultOps
+        this.vaultOps = new VaultOperations(vault, {
+            enableEncryption: setting.enableEncryption,
+            password: setting.password
+        })
         this.headers = {
             // Hack to disable caching which leads to inconsistency for
             // read after write https://github.com/octokit/octokit.js/issues/890
@@ -296,7 +299,11 @@ export class Fit implements IFit {
     }
 
     async createBlob(content: string, encoding: string): Promise<string> {
-        //TODO encrypt and b64 encode here
+        let finalContent = content;
+        if (this.encryptionEnabled) {
+            finalContent = await encryptContent(content, this.encryptionKey);
+            encoding = 'base64'; // Always use base64 for encrypted content
+        }
         
         const {data: blob} = await this.octokit.request(
             `POST /repos/{owner}/{repo}/git/blobs`, {
@@ -327,20 +334,9 @@ export class Fit implements IFit {
 		let encoding: string;
 		let content: string 
         // TODO check whether every files including md can be read using readBinary to reduce code complexity
-		if (extension && RECOGNIZED_BINARY_EXT.includes(extension)) {
-			encoding = "base64"
-
-			const fileArrayBuf = await this.vaultOps.vault.readBinary(file)
-			const uint8Array = new Uint8Array(fileArrayBuf);
-			let binaryString = '';
-			for (let i = 0; i < uint8Array.length; i++) {
-				binaryString += String.fromCharCode(uint8Array[i]);
-			}
-			content = btoa(binaryString);
-		} else {
-			encoding = 'utf-8'
-			content = await this.vaultOps.vault.read(file)
-		}
+		// All content is read as binary and base64 encoded for consistency
+		encoding = "base64"
+		content = await this.vaultOps.readAndEncryptContent(file)
         const blobSha = await this.createBlob(content, encoding)
         // skip creating node if file found on remote is the same as the created blob
         if (remoteTree.some(node => node.path === path && node.sha === blobSha)) {
@@ -405,7 +401,15 @@ export class Fit implements IFit {
             file_sha,
             headers: this.headers
         })
-        // decrypt and b64 encode here
-        return blob.content
+        let content = blob.content;
+        if (this.encryptionEnabled) {
+            try {
+                content = await decryptContent(content, this.encryptionKey);
+            } catch (e) {
+                // If decryption fails, it might be unencrypted content from before encryption was enabled
+                console.warn(`Failed to decrypt content: ${e.message}`);
+            }
+        }
+        return content
     }
 }
