@@ -78,64 +78,19 @@ export function removeLineEndingsFromBase64String(content: string): string {
 }
 
 // Path encryption utilities
-async function derivePathKey(password: string): Promise<CryptoKey> {
-    const encoder = new TextEncoder();
-    const passwordData = encoder.encode(password);
-    const salt = encoder.encode("FitPathEncryption"); // Constant salt for path encryption
-
-    // First create a PBKDF2 key from the password
-    const baseKey = await window.crypto.subtle.importKey(
-        "raw",
-        passwordData,
-        "PBKDF2",
-        false,
-        ["deriveBits", "deriveKey"]
-    );
-
-    // Then derive an AES-GCM key using PBKDF2
-    return await window.crypto.subtle.deriveKey(
-        {
-            name: "PBKDF2",
-            salt: salt,
-            iterations: 100000,
-            hash: "SHA-256"
-        },
-        baseKey,
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["encrypt", "decrypt"]
-    );
-}
-
 export async function encryptPath(path: string, password: string): Promise<string> {
     const encoder = new TextEncoder();
-    const data = encoder.encode(path);
     
-    // Use a deterministic IV based on the path
+    // Use deterministic salt and IV based on the path for consistency
     const pathData = encoder.encode(path);
     const hashBuffer = await crypto.subtle.digest('SHA-256', pathData);
-    const iv = new Uint8Array(hashBuffer).slice(0, 12);
+    const salt = new Uint8Array(hashBuffer).slice(0, 16); // First 16 bytes as salt
+    const iv = new Uint8Array(hashBuffer).slice(16, 28);   // Next 12 bytes as IV
     
-    // Derive key from password (uses constant salt)
-    const cryptoKey = await derivePathKey(password);
-
-    // Encrypt
-    const encryptedData = await window.crypto.subtle.encrypt(
-        {
-            name: "AES-GCM",
-            iv: iv
-        },
-        cryptoKey,
-        data
-    );
-    
-    // Combine IV and encrypted data
-    const combined = new Uint8Array(iv.length + new Uint8Array(encryptedData).length);
-    combined.set(iv);
-    combined.set(new Uint8Array(encryptedData), iv.length);
+    // Use core encryption function
+    const base64 = await encryptWithKey(path, password, salt, iv);
     
     // Convert to URL-safe base64
-    const base64 = arrayBufferToBase64(combined.buffer);
     return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
@@ -147,25 +102,8 @@ export async function decryptPath(encryptedPath: string, password: string): Prom
         const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
         const encryptedData = base64ToArrayBuffer(padded);
         
-        // Extract the IV from the first 12 bytes of encrypted data
-        // We need to modify encryptPath to include IV in the output
-        const iv = encryptedData.slice(0, 12);
-        const actualEncryptedData = encryptedData.slice(12);
-        
-        // Derive the same key
-        const cryptoKey = await derivePathKey(password);
-
-        // Decrypt
-        const decryptedData = await window.crypto.subtle.decrypt(
-            {
-                name: "AES-GCM",
-                iv: iv
-            },
-            cryptoKey,
-            actualEncryptedData
-        );
-
-        return new TextDecoder().decode(decryptedData);
+        // Use core decryption function
+        return await decryptWithKey(encryptedData, password);
     } catch (e) {
         // If decryption fails, return the original path
         // This handles the case of unencrypted paths
@@ -174,7 +112,7 @@ export async function decryptPath(encryptedPath: string, password: string): Prom
     }
 }
 
-// Content encryption utilities
+// Core encryption utilities
 async function deriveKey(password: string, salt: ArrayBuffer): Promise<CryptoKey> {
     const encoder = new TextEncoder();
     const passwordData = encoder.encode(password);
@@ -203,59 +141,76 @@ async function deriveKey(password: string, salt: ArrayBuffer): Promise<CryptoKey
     );
 }
 
-export async function encryptContent(content: string, password: string): Promise<string> {
+async function encryptWithKey(
+    data: string,
+    password: string,
+    salt: Uint8Array,
+    iv: Uint8Array
+): Promise<string> {
     const encoder = new TextEncoder();
-    const data = encoder.encode(content);
+    const dataBuffer = encoder.encode(data);
     
-    // Generate salt and IV
+    // Ensure we have proper ArrayBuffer types
+    const saltBuffer = new ArrayBuffer(salt.length);
+    new Uint8Array(saltBuffer).set(salt);
+    
+    const ivBuffer = new ArrayBuffer(iv.length);
+    new Uint8Array(ivBuffer).set(iv);
+    
+    const key = await deriveKey(password, saltBuffer);
+    
+    const encryptedBuffer = await window.crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
+        key,
+        dataBuffer
+    );
+    
+    // Combine salt + IV + encrypted data
+    const result = new Uint8Array(salt.length + iv.length + encryptedBuffer.byteLength);
+    result.set(salt, 0);
+    result.set(iv, salt.length);
+    result.set(new Uint8Array(encryptedBuffer), salt.length + iv.length);
+    
+    return arrayBufferToBase64(result.buffer);
+}
+
+async function decryptWithKey(
+    encryptedData: ArrayBuffer,
+    password: string
+): Promise<string> {
+    // Extract salt (first 16 bytes), IV (next 12 bytes), and encrypted data (rest)
+    const salt = new Uint8Array(encryptedData.slice(0, 16));
+    const iv = new Uint8Array(encryptedData.slice(16, 28));
+    const encrypted = encryptedData.slice(28);
+    
+    const key = await deriveKey(password, salt.buffer);
+    
+    const decryptedBuffer = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: iv },
+        key,
+        encrypted
+    );
+    
+    const decoder = new TextDecoder();
+    return decoder.decode(decryptedBuffer);
+}
+
+// Content encryption utilities
+export async function encryptContent(content: string, password: string): Promise<string> {
+    // Generate random salt and IV for content encryption
     const salt = window.crypto.getRandomValues(new Uint8Array(16));
     const iv = window.crypto.getRandomValues(new Uint8Array(12));
     
-    // Derive key from password and salt
-    const cryptoKey = await deriveKey(password, salt.buffer);
-
-    // Encrypt
-    const encryptedData = await window.crypto.subtle.encrypt(
-        {
-            name: "AES-GCM",
-            iv: iv
-        },
-        cryptoKey,
-        data
-    );
-
-    // Combine salt, IV, and encrypted data and convert to base64
-    const combined = new Uint8Array(salt.length + iv.length + new Uint8Array(encryptedData).length);
-    combined.set(salt);  // First 16 bytes are salt
-    combined.set(iv, salt.length);  // Next 12 bytes are IV
-    combined.set(new Uint8Array(encryptedData), salt.length + iv.length);  // Rest is encrypted data
-    
-    return arrayBufferToBase64(combined.buffer);
+    // Use core encryption function
+    return await encryptWithKey(content, password, salt, iv);
 }
 
 export async function decryptContent(encryptedContent: string, password: string): Promise<string> {
     // Convert base64 to array buffer
     const combined = base64ToArrayBuffer(encryptedContent);
     
-    // Extract salt, IV, and data
-    const salt = combined.slice(0, 16);
-    const iv = combined.slice(16, 28);
-    const data = combined.slice(28);
-    
-    // Derive key from password and salt
-    const cryptoKey = await deriveKey(password, new Uint8Array(salt).buffer);
-
-    // Decrypt
-    const decryptedData = await window.crypto.subtle.decrypt(
-        {
-            name: "AES-GCM",
-            iv: iv
-        },
-        cryptoKey,
-        data
-    );
-
-    return new TextDecoder().decode(decryptedData);
+    // Use core decryption function
+    return await decryptWithKey(combined, password);
 }
 
 export function showFileOpsRecord(records: Array<{heading: string, ops: FileOpRecord[]}>): void {
